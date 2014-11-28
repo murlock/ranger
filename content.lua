@@ -7,6 +7,7 @@ local bslib = require("bitset") -- https://github.com/bsm/bitset.lua
 local block_size = 256*1024 -- Block size 256k
 local backend = "http://127.0.0.1:8080/" -- backend
 local fcttl = 30 -- Time to cache HEAD requests
+local wait_lock = 0.01 -- Time to wait lock for concurrency access
 
 local bypass_headers = { 
 	["expires"] = "Expires",
@@ -44,16 +45,16 @@ local ok, err = ngx.on_abort(function ()
 	ngx.exit(499)
 end)
 if not ok then
-	ngx.err(ngx.LOG, "Can't register on_abort function.")
+	ngx.log(ngx.ERR, "Can't register on_abort function.")
 	ngx.exit(500)
 end
 
 -- try reading values from dict, if not issue a HEAD request and save the value
 local updating, flags = file_dict:get(ngx.var.uri .. "-update")
-repeat 
+while updating do
 	updating, flags = file_dict:get(ngx.var.uri .. "-update")
-	ngx.sleep(0.1)
-until not updating 
+	ngx.sleep(wait_lock)
+end
 
 local origin_headers = {}
 local origin_info = file_dict:get(ngx.var.uri .. "-info")
@@ -189,4 +190,4 @@ for block_range_start = block_start, stop, block_size do
 end
 chunk_dict:set(ngx.var.uri,cjson.encode(chunk_map.nums))
 ngx.eof()
-return ngx.exit(206)
+return ngx.exit(ngx.status)
