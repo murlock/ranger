@@ -120,6 +120,10 @@ if range_header then
 		start = matches[1] or 0
 		stop = matches[2] or (origin_headers["Content-Length"] - 1)
 	end
+	-- protect to avoid read more than Content-Lenght
+	if tonumber(origin_headers['Content-Length']) < tonumber(stop) then
+		stop = tonumber(origin_headers['Content-Length'])
+	end
 else
 	-- no range header, retrieve all data and return 200
 	stop = (origin_headers["Content-Length"] - 1)
