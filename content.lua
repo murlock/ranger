@@ -4,10 +4,10 @@ local cjson = require("cjson")
 local bslib = require("bitset") -- https://github.com/bsm/bitset.lua
 
 -- basic configuration
-local block_size = 256*1024 -- Block size 256k
-local backend = "http://127.0.0.1:8080/" -- backend
-local fcttl = 30 -- Time to cache HEAD requests
-local wait_lock = 0.01 -- Time to wait lock for concurrency access
+local block_size = 128*1024 -- Block size 256k
+local backend = "http://127.0.0.1:4242/" -- backend
+local fcttl = 86400 -- Time to cache HEAD requests
+local wait_lock = 0.001 -- Time to wait lock for concurrency access
 
 local manage_stats = 0 -- 1 to compute Hit/Miss stats, 0 to disable
 
