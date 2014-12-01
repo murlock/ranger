@@ -45,7 +45,7 @@ local start = 0
 local stop = -1
 
 -- ngx.status = 206 -- Default HTTP status
-local status = 206
+local status = nil
 
 -- register on_abort callback, reguires lua_check_client_abort
 local ok, err = ngx.on_abort(function () 
@@ -106,13 +106,14 @@ else
 	end
 end
 
-ngx.status = status
 
--- parse range header
-local range_header = ngx.req.get_headers()["Range"] or "bytes=0-"
-local matches, err = match(range_header, "^bytes=(\\d+)?-([^\\\\]\\d+)?", "joi")
-if matches then
-	if matches[1] == nil and matches[2] then
+-- parse range header if available
+local range_header = ngx.req.get_headers()["Range"] or nil -- "bytes=0-"
+-- if matches then
+if range_header then
+	local matches, err = match(range_header, "^bytes=(\\d+)?-([^\\\\]\\d+)?", "joi")
+	status = 206
+	if matches and matches[1] == nil and matches[2] then
 		stop = (origin_headers["Content-Length"] - 1)
 		start = (stop - matches[2]) + 1
 	else
@@ -120,12 +121,15 @@ if matches then
 		stop = matches[2] or (origin_headers["Content-Length"] - 1)
 	end
 else
+	-- no range header, retrieve all data and return 200
 	stop = (origin_headers["Content-Length"] - 1)
+	status = 200
 end
 
 for header, value in pairs(origin_headers) do
 	ngx.header[header] = value
 end
+ngx.status = status
 
 local cl = origin_headers["Content-Length"]
 ngx.header["Content-Length"] = (stop - (start - 1))
@@ -196,7 +200,7 @@ for block_range_start = block_start, stop, block_size do
 	local content_start = 0
 	local content_stop = -1
 
-	ngx.log(ngx.ERR, "block ", block_range_start, " => ",  ngx.now())
+	-- ngx.log(ngx.ERR, "block ", block_range_start, " => ",  ngx.now())
 
 	local req_params = {
 		url = backend .. ngx.var.uri,
@@ -238,9 +242,9 @@ for block_range_start = block_start, stop, block_size do
 	end
 end
 if manage_stats == 1 then
-	ngx.log(ngx.ERR, "before csjon ", ngx.now())
+	-- ngx.log(ngx.ERR, "before csjon ", ngx.now())
 	chunk_dict:set(ngx.var.uri,cjson.encode(chunk_map.nums))
-	ngx.log(ngx.ERR, "after cjson ", ngx.now())
+	-- ngx.log(ngx.ERR, "after cjson ", ngx.now())
 end
 ngx.eof()
 return ngx.exit(status)
