@@ -122,7 +122,7 @@ if range_header then
 	end
 	-- protect to avoid read more than Content-Lenght
 	if tonumber(origin_headers['Content-Length']) < tonumber(stop) then
-		stop = tonumber(origin_headers['Content-Length'])
+		stop = tonumber(origin_headers['Content-Length']) - 1
 	end
 else
 	-- no range header, retrieve all data and return 200
