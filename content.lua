@@ -38,15 +38,16 @@ local match = ngx.re.match
 local start = 0
 local stop = -1
 
-ngx.status = 206 -- Default HTTP status
+-- ngx.status = 206 -- Default HTTP status
+local status = 206
 
--- register on_abort callback 
+-- register on_abort callback, reguires lua_check_client_abort
 local ok, err = ngx.on_abort(function () 
 	ngx.exit(499)
 end)
 if not ok then
-	ngx.log(ngx.ERR, "Can't register on_abort function.")
-	ngx.exit(500)
+	-- ngx.log(ngx.ERR, "Can't register on_abort function.", err)
+	-- ngx.exit(500)
 end
 
 -- try reading values from dict, if not issue a HEAD request and save the value
@@ -64,6 +65,13 @@ if not origin_info then
 		url = backend .. ngx.var.uri, 
 		method = 'HEAD' 
 	}
+        if code == 404 then
+		file_dict:delete(ngx.var.uri .. "-update")
+		ngx.status = code
+		ngx.eof()
+		return ngx.exit(code)
+        end
+ 
 	for key, value in pairs(bypass_headers) do
 		origin_headers[value] = headers[key]
 	end
@@ -73,6 +81,26 @@ if not origin_info then
 end
 
 origin_headers = cjson.decode(origin_info)
+
+local is_get = ngx.req.get_method()
+if string.match(is_get, "HEAD") then
+	for key, value in pairs(origin_headers) do
+        	ngx.header[key] = value
+        end
+	-- should 
+        ngx.status = 200
+	ngx.send_headers()
+        ngx.eof()
+        return ngx.exit(ngx.status)
+else
+	if not string.match(is_get, "GET") then
+		ngx.status = 500
+		ngx.eof()
+		return ngx.exit(ngx.status)
+	end
+end
+
+ngx.status = status
 
 -- parse range header
 local range_header = ngx.req.get_headers()["Range"] or "bytes=0-"
@@ -151,6 +179,8 @@ for block_range_start = block_start, stop, block_size do
 	local content_start = 0
 	local content_stop = -1
 
+	ngx.log(ngx.ERR, "block ", block_range_start, " => ",  ngx.now())
+
 	local req_params = {
 		url = backend .. ngx.var.uri,
 		method = 'GET',
@@ -180,7 +210,7 @@ for block_range_start = block_start, stop, block_size do
 		ngx.print(sub(body, (content_start + 1), content_stop)) -- lua count from 1
 	end
 
-	if headers and ngx.re.match(headers["x-cache"],"HIT") then
+	if headers and match(headers["x-cache"],"HIT") then
 		chunk_map:set(block_id)
 		cache_dict:incr("cache_hit", 1)
 	else
@@ -188,6 +218,8 @@ for block_range_start = block_start, stop, block_size do
 		cache_dict:incr("cache_miss", 1)
 	end
 end
+ngx.log(ngx.ERR, "before csjon ", ngx.now())
 chunk_dict:set(ngx.var.uri,cjson.encode(chunk_map.nums))
+ngx.log(ngx.ERR, "after cjson ", ngx.now())
 ngx.eof()
-return ngx.exit(ngx.status)
+return ngx.exit(status)
