@@ -9,6 +9,8 @@ local backend = "http://127.0.0.1:8080/" -- backend
 local fcttl = 30 -- Time to cache HEAD requests
 local wait_lock = 0.01 -- Time to wait lock for concurrency access
 
+local manage_stats = 0 -- 1 to compute Hit/Miss stats, 0 to disable
+
 local bypass_headers = { 
 	["expires"] = "Expires",
 	["content-type"] = "Content-Type",
@@ -23,9 +25,13 @@ local bypass_headers = {
 
 local httpc = http.new()
 
-local cache_dict = ngx.shared.cache_dict
+local cache_dict = nil
 local file_dict = ngx.shared.file_dict 
-local chunk_dict = ngx.shared.chunk_dict
+local chunk_dict = nil
+if manage_stats == 1 then
+	cache_dict = ngx.shared.cache_dict
+	chunk_dict = ngx.shared.chunk_dict
+end
 
 local sub = string.sub
 local tonumber = tonumber
@@ -128,11 +134,16 @@ ngx.header["Content-Range"] = "bytes " .. start .. "-" .. stop .. "/" .. cl
 block_stop = (ceil(stop / block_size) * block_size)
 block_start = (floor(start / block_size) * block_size)
 
--- hits / miss info
-local chunk_info, flags = chunk_dict:get(ngx.var.uri)
-local chunk_map = bslib:new()
-if chunk_info then
-	chunk_map.nums = cjson.decode(chunk_info)
+
+local chunk_info, flags = nil, nil
+local chunk_map = nil
+if manage_stats == 1 then
+	-- hits / miss info
+	chunk_info, flags = chunk_dict:get(ngx.var.uri)
+	chunk_map = bslib:new()
+	if chunk_info then
+		chunk_map.nums = cjson.decode(chunk_info)
+	end
 end
 
 local bytes_miss, bytes_hit = 0, 0
@@ -143,7 +154,15 @@ for block_range_start = block_start, stop, block_size do
 	local content_start = 0
 	local content_stop = block_size
 
-	local block_status = chunk_map:get(block_id)
+	local block_status = nil
+	if manage_stats == 1 then
+		block_status = chunk_map:get(block_id)
+		if block_status then
+			bytes_hit = bytes_hit + (content_stop - content_start)
+		else
+			bytes_miss = bytes_miss + (content_stop - content_start)
+		end
+	end
 
 	if block_range_start == block_start then
 		content_start = (start - block_range_start)
@@ -153,23 +172,21 @@ for block_range_start = block_start, stop, block_size do
 		content_stop = (stop - block_range_start) + 1
 	end
 
-	if block_status then
-		bytes_hit = bytes_hit + (content_stop - content_start)
-	else
-		bytes_miss = bytes_miss + (content_stop - content_start)
-	end
 end
 
-if bytes_miss > 0 then
-	ngx.var.ranger_cache_status = "MISS"
-	ngx.header["X-Cache"] = "MISS"
-else
-	ngx.var.ranger_cache_status = "HIT"
-	ngx.header["X-Cache"] = "HIT"
+
+if manage_stats == 1 then
+	if bytes_miss > 0 then
+		ngx.var.ranger_cache_status = "MISS"
+		ngx.header["X-Cache"] = "MISS"
+	else
+		ngx.var.ranger_cache_status = "HIT"
+		ngx.header["X-Cache"] = "HIT"
+	end
+	ngx.header["X-Bytes-Hit"] = bytes_hit
+	ngx.header["X-Bytes-Miss"] = bytes_miss
 end
-ngx.header["X-Bytes-Hit"] = bytes_hit
-ngx.header["X-Bytes-Miss"] = bytes_miss
-	
+
 ngx.send_headers()
 
 -- fetch the content from the backend
@@ -210,16 +227,20 @@ for block_range_start = block_start, stop, block_size do
 		ngx.print(sub(body, (content_start + 1), content_stop)) -- lua count from 1
 	end
 
-	if headers and match(headers["x-cache"],"HIT") then
-		chunk_map:set(block_id)
-		cache_dict:incr("cache_hit", 1)
-	else
-		chunk_map:clear(block_id)
-		cache_dict:incr("cache_miss", 1)
+	if manage_stats == 1 then
+		if headers and match(headers["x-cache"],"HIT") then
+			chunk_map:set(block_id)
+			cache_dict:incr("cache_hit", 1)
+		else
+			chunk_map:clear(block_id)
+			cache_dict:incr("cache_miss", 1)
+		end
 	end
 end
-ngx.log(ngx.ERR, "before csjon ", ngx.now())
-chunk_dict:set(ngx.var.uri,cjson.encode(chunk_map.nums))
-ngx.log(ngx.ERR, "after cjson ", ngx.now())
+if manage_stats == 1 then
+	ngx.log(ngx.ERR, "before csjon ", ngx.now())
+	chunk_dict:set(ngx.var.uri,cjson.encode(chunk_map.nums))
+	ngx.log(ngx.ERR, "after cjson ", ngx.now())
+end
 ngx.eof()
 return ngx.exit(status)
