@@ -180,7 +180,7 @@ for block_range_start = block_start, stop, block_size do
 		ngx.print(sub(body, (content_start + 1), content_stop)) -- lua count from 1
 	end
 
-	if ngx.re.match(headers["x-cache"],"HIT") then
+	if headers and ngx.re.match(headers["x-cache"],"HIT") then
 		chunk_map:set(block_id)
 		cache_dict:incr("cache_hit", 1)
 	else
