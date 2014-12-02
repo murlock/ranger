@@ -71,7 +71,7 @@ if not origin_info then
 		url = backend .. ngx.var.uri, 
 		method = 'HEAD' 
 	}
-        if code == 404 then
+        if code ~= 200 and code ~= 206 then
 		file_dict:delete(ngx.var.uri .. "-update")
 		ngx.status = code
 		ngx.eof()
@@ -231,6 +231,14 @@ for block_range_start = block_start, stop, block_size do
 	end
 
 	local ok, code, headers, status, body  = httpc:request(req_params)
+	-- check error code and abort as soon as error is detected
+	if code ~= 200 and code ~= 206 then
+		ngx.log(ngx.ERR, "Failed to retrieve block ", block_id, " ", block_range_start, block_range_stop)
+
+		ngx.eof()
+		return ngx.exit(status)
+        end
+
 	if body then
 		ngx.print(sub(body, (content_start + 1), content_stop)) -- lua count from 1
 	end
