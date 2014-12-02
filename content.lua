@@ -74,6 +74,7 @@ if not origin_info then
         if code ~= 200 and code ~= 206 then
 		file_dict:delete(ngx.var.uri .. "-update")
 		ngx.status = code
+                ngx.log(ngx.ERR, "HEAD has failed with ", code, " ", status)
 		ngx.eof()
 		return ngx.exit(code)
         end
@@ -233,7 +234,7 @@ for block_range_start = block_start, stop, block_size do
 	local ok, code, headers, status, body  = httpc:request(req_params)
 	-- check error code and abort as soon as error is detected
 	if code ~= 200 and code ~= 206 then
-		ngx.log(ngx.ERR, "Failed to retrieve block ", block_id, " ", block_range_start, block_range_stop)
+		ngx.log(ngx.ERR, "Failed to retrieve block ", block_id, " ", block_range_start, " ",  block_range_stop, " -> ", code, " ", status)
 
 		ngx.eof()
 		return ngx.exit(status)
