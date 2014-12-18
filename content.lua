@@ -6,6 +6,7 @@ local bslib = require("bitset") -- https://github.com/bsm/bitset.lua
 -- basic configuration
 local block_size = 128*1024 -- Block size 256k
 local backend = "http://127.0.0.1:4242/" -- backend
+local backend_dew = "http://127.0.0.1:8081/" -- backend_dew
 local fcttl = 86400 -- Time to cache HEAD requests
 local wait_lock = 0.001 -- Time to wait lock for concurrency access
 
@@ -68,7 +69,8 @@ local origin_info = file_dict:get(ngx.var.uri .. "-info")
 if not origin_info then
 	file_dict:set(ngx.var.uri .. "-update", true, 5)
 	local ok, code, headers, status, body = httpc:request { 
-		url = backend .. ngx.var.uri, 
+		url = backend_dew .. ngx.var.uri, 
+		keepalive = 1,
 		method = 'HEAD' 
 	}
         if code ~= 200 and code ~= 206 then
@@ -82,6 +84,7 @@ if not origin_info then
 	for key, value in pairs(bypass_headers) do
 		origin_headers[value] = headers[key]
 	end
+	ngx.log(ngx.ERR, "HEAD OK with ", code, " ", status)
 	origin_info = cjson.encode(origin_headers)
 	file_dict:set(ngx.var.uri .. "-info", origin_info, fcttl)
 	file_dict:delete(ngx.var.uri .. "-update")
@@ -96,6 +99,7 @@ if string.match(is_get, "HEAD") then
         end
 	-- should 
         ngx.status = 200
+	ngx.log(ngx.ERR, "HEAD detected with ", code, " ", status)
 	ngx.send_headers()
         ngx.eof()
         return ngx.exit(ngx.status)
@@ -210,6 +214,7 @@ for block_range_start = block_start, stop, block_size do
 	local req_params = {
 		url = backend .. ngx.var.uri,
 		method = 'GET',
+		keepalive = 1,
 		headers = {
 			Range = "bytes=" .. block_range_start .. "-" .. block_range_stop,
 		}
@@ -261,3 +266,4 @@ if manage_stats == 1 then
 end
 ngx.eof()
 return ngx.exit(status)
+
